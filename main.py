@@ -892,6 +892,30 @@ API地址: {self.convert_api_url}
 
         return model_info
 
+        # ---------------- 新增：列出所有提示词指令 ----------------
+    @filter.command("提示词")
+    async def list_all_prompts(self, event: AstrMessageEvent):
+        """列出所有自定义提示词的快捷指令名（不显示内容）"""
+        if not self.prompt_map:
+            yield event.plain_result("📂 当前未配置任何自定义提示词。")
+            return
+
+        # 获取所有的键（即指令名），不获取值（内容）
+        keys = list(self.prompt_map.keys())
+
+        # 构造回复消息
+        msg = (
+            f"📂 当前已加载 {len(keys)} 个快捷提示词：\n"
+            f"━━━━━━━━━━━━━━\n"
+        )
+
+        # 循环拼接，每个指令换一行显示
+        for key in keys:
+            msg += f"• {key}  "
+
+        msg += f"━━━━━━━━━━━━━━\n💡 使用方法: 直接发送指令名 (例如: /{keys[0] if keys else '指令名'})"
+
+        yield event.plain_result(msg)
     # ---------------- 配置显示命令 ----------------
     @filter.command("gemini设置")
     async def show_settings(self, event: AstrMessageEvent):
