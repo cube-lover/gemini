@@ -1,0 +1,37 @@
+{
+    "api_url": {
+        "description": "Flow2API 接口地址",
+        "type": "string",
+        "default": "http://172.17.0.1:8000/v1/chat/completions",
+        "hint": "Flow2API 的 OpenAI 兼容接口地址"
+    },
+    "apikey": {
+        "description": "API 密钥",
+        "type": "string",
+        "hint": "Flow2API 的 API Key，格式如: han1234",
+        "default": "",
+        "obvious_hint": true
+    },
+    "model": {
+        "description": "选择生成模型",
+        "type": "string",
+        "default": "imagen-4.0-generate-preview-landscape",
+        "hint": "不同模型支持不同的功能和分辨率",
+        "options": [
+          "gemini-2.5-flash-image-landscape",
+      "gemini-2.5-flash-image-portrait", 
+      "gemini-3.0-pro-image-landscape",
+      "gemini-3.0-pro-image-portrait",
+      "imagen-4.0-generate-preview-landscape",
+      "imagen-4.0-generate-preview-portrait"
+        ]
+    },
+    "prompt_list": {
+        "description": "自定义提示词列表",
+        "type": "list",
+        "default": [
+            "手办化:将图片转换为精美的手办风格"
+        ],
+        "hint": "格式：关键词:描述。添加后可使用 /关键词 命令"
+    }
+}
