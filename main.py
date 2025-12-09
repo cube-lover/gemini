@@ -286,125 +286,137 @@ API地址: {self.convert_api_url}
         return ""
 
         # ---------------- 新增：Base64图片压缩辅助函数 (用于重试) ----------------
+        # ---------------- 辅助：Base64图片压缩 (带大小监控) ----------------
     def _resize_base64_image(self, b64_string: str, scale: float = 0.7) -> str:
-        """
-        将 Base64 图片按比例缩小
-        :param scale: 缩放比例 (0.5 表示缩小一半)
-        """
-        if PyImage is None:
+        """将 Base64 图片按比例缩小，并打印大小变化"""
+        if not b64_string or PyImage is None:
             return b64_string
 
         try:
-            # 1. 清理并解码 Base64
+            # 计算原始大小 (粗略估算 KB)
+            original_kb = len(b64_string) / 1024
+
+            # 1. 分离头部和数据
             if "base64," in b64_string:
                 header, data = b64_string.split("base64,", 1)
+                header = header + "base64,"
             else:
                 header = "data:image/jpeg;base64,"
                 data = b64_string
 
+            # 2. 解码并处理
             img_bytes = base64.b64decode(data)
+            img = PyImage.open(io.BytesIO(img_bytes)).convert("RGB")
 
-            # 2. Pillow 处理
-            img = PyImage.open(io.BytesIO(img_bytes))
-            img = img.convert("RGB")
+            old_w, old_h = img.width, img.height
+            new_w, new_h = int(old_w * scale), int(old_h * scale)
 
-            # 3. 计算新尺寸
-            new_width = int(img.width * scale)
-            new_height = int(img.height * scale)
+            # 限制最小尺寸，太小就不缩了
+            if new_w < 128 or new_h < 128:
+                logger.warning(f"⚠️ 图片已过小 ({new_w}x{new_h})，跳过压缩")
+                return b64_string
 
-            # 限制最小尺寸，防止缩得太小
-            if new_width < 256 or new_height < 256:
-                return b64_string  # 不再压缩
-
-            img = img.resize((new_width, new_height), PyImage.LANCZOS)
+            # 3. 执行缩放
+            img = img.resize((new_w, new_h), PyImage.LANCZOS)
 
             # 4. 转回 Base64
             buffer = io.BytesIO()
-            img.save(buffer, format="JPEG", quality=80)  # 同时稍微降低 JPEG 质量
-            new_b64_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            img.save(buffer, format="JPEG", quality=80)
+            new_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-            logger.info(f"📉 图片已压缩重试: {img.width}x{img.height} -> {new_width}x{new_height}")
-            return f"{header}{new_b64_data}"
+            final_b64 = f"{header}{new_data}"
+            new_kb = len(final_b64) / 1024
+
+            logger.info(
+                f"📉 [压缩成功] 尺寸: {old_w}x{old_h} -> {new_w}x{new_h} | "
+                f"大小: {original_kb:.2f}KB -> {new_kb:.2f}KB"
+            )
+            return final_b64
 
         except Exception as e:
-            logger.error(f"❌ 图片压缩失败: {e}")
-            return b64_string
+            logger.error(f"❌ 图片压缩异常: {e}")
+            return b64_string  # 出错返回原图，保证不丢数据
     # ---------------- 核心：生成逻辑 (带3次自动降质重试机制) ----------------
+        # ---------------- 核心：生成逻辑 (逻辑修复版) ----------------
+        # ---------------- 核心：生成逻辑 (带实时大小显示) ----------------
     async def _generate_image(self, prompt: str, image_base64: str = None, is_image_to_image: bool = False):
         """调用 Flow2API 生成图片 (包含自动降质重试机制)"""
 
-        max_retries = 3  # 最大重试次数
         current_image_b64 = image_base64
 
-        # 构建请求头
+        # 初始日志
+        if is_image_to_image and current_image_b64:
+            logger.info(f"🚀 [图生图] 初始图片大小: {len(current_image_b64) / 1024:.2f} KB")
+
         headers = {
             'Authorization': f'Bearer {self.apikey}',
             'Content-Type': 'application/json'
         }
 
-        for attempt in range(max_retries + 1):
+        for attempt in range(4):
             is_retry = attempt > 0
-            if is_retry:
-                logger.warning(f"🔄 第 {attempt}/{max_retries} 次重试...")
 
-                # 如果是图生图模式，且 Pillow 可用，则进行压缩
-                if is_image_to_image and current_image_b64 and PyImage:
-                    # 每次重试都将图片缩小至当前的 70%
-                    current_image_b64 = self._resize_base64_image(current_image_b64, scale=0.7)
-                elif is_image_to_image and not PyImage:
-                    logger.warning("⚠️ 未安装 Pillow，无法压缩图片，仅进行普通重试")
+            # === 1. 重试时的压缩逻辑 ===
+            if is_retry and is_image_to_image and current_image_b64:
+                logger.warning(f"🔄 第 {attempt} 次重试，正在压缩图片...")
+                resized_b64 = self._resize_base64_image(current_image_b64, 0.7)
+                if resized_b64:
+                    current_image_b64 = resized_b64
+                else:
+                    logger.warning("⚠️ 压缩返回空数据，保持原图重试")
 
-            # --- 构建 Payload ---
-            # 确保base64格式正确
-            if is_image_to_image and current_image_b64:
-                # 确保前缀存在
-                if not current_image_b64.startswith("data:image/"):
-                    # 简单修复
-                    if "base64," in current_image_b64:
-                        b64_part = current_image_b64.split("base64,")[1]
-                        current_image_b64 = f"data:image/jpeg;base64,{b64_part}"
-                    else:
-                        current_image_b64 = f"data:image/jpeg;base64,{current_image_b64}"
+            # === 2. 构建消息内容 ===
+            content = [{"type": "text", "text": prompt}]
 
-                payload = {
-                    "model": self.current_model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": current_image_b64,
-                                        "detail": "low" if is_retry else "high"  # 重试时降低细节模式，这很关键
-                                    }
-                                }
-                            ]
+            if is_image_to_image:
+                if current_image_b64:
+                    # 修复 Header
+                    if not current_image_b64.startswith("data:"):
+                        if "base64," in current_image_b64:
+                            current_image_b64 = f"data:image/jpeg;base64,{current_image_b64.split('base64,')[1]}"
+                        else:
+                            current_image_b64 = f"data:image/jpeg;base64,{current_image_b64}"
+
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": current_image_b64,
+                            "detail": "low" if is_retry else "high"
                         }
-                    ],
-                    "stream": True
-                }
-            else:
-                # 文生图 Payload
-                payload = {
-                    "model": self.current_model,
-                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
-                    "stream": True
-                }
+                    })
+                else:
+                    logger.error("❌ 图生图模式下图片数据丢失")
+                    return False, "❌ 图片数据丢失"
 
-            # --- 发送请求 ---
-            logger.info(f"📦 发送请求到 API (尝试 {attempt + 1})")
+            # === 3. 最终 Payload ===
+            payload = {
+                "model": self.current_model,
+                "messages": [{"role": "user", "content": content}],
+                "stream": True
+            }
+
+            # === 4. 发送请求 (新增：显示当前图片大小) ===
+            size_info = ""
+            if is_image_to_image and current_image_b64:
+                kb_size = len(current_image_b64) / 1024
+                size_info = f" | 当前图片: {kb_size:.2f} KB"
+
+            logger.info(f"📦 发送请求到 API (尝试 {attempt + 1}){size_info}")
+
             try:
                 async with aiohttp.ClientSession() as session:
-                    timeout = aiohttp.ClientTimeout(total=120)  # 2分钟超时
+                    timeout = aiohttp.ClientTimeout(total=120)
                     async with session.post(self.api_url, json=payload, headers=headers,
                                             timeout=timeout) as response:
-                        response_text = await response.text()
 
-                        # 1. 检查 HTTP 状态码
+                        if response.status != 200:
+                            err_text = await response.text()
+                            logger.warning(f"⚠️ API 报错 ({response.status}): {err_text[:100]}")
+
                         if response.status == 200:
-                            # === 解析成功逻辑 ===
+                            response_text = await response.text()
+
+                            # 解析流式
                             full_content = ""
                             lines = response_text.strip().split('\n')
                             for line in lines:
@@ -422,18 +434,12 @@ API地址: {self.convert_api_url}
                             # 提取 URL
                             url_patterns = [r'!\[.*?\]\((https?://[^\s)]+)\)', r'\((https?://[^\s)]+)\)',
                                             r'(https?://[^\s<>"]+)']
-                            found_url = None
                             for pattern in url_patterns:
                                 urls = re.findall(pattern, full_content, re.IGNORECASE)
                                 if urls:
-                                    found_url = urls[0]
-                                    break
+                                    logger.info(f"✅ 生成成功: {urls[0][:50]}...")
+                                    return True, urls[0]
 
-                            if found_url:
-                                logger.info(f"✅ 生成成功 (尝试 {attempt + 1}): {found_url[:50]}...")
-                                return True, found_url
-
-                            # 如果有http文本但没匹配到正则
                             if "http" in full_content.lower():
                                 words = re.split(r'[\s\n\r\t,.;:!?()\[\]{}]+', full_content)
                                 for word in words:
@@ -441,24 +447,15 @@ API地址: {self.convert_api_url}
                                         cleaned = re.sub(r'[.,;:!?)\]]+$', '', word)
                                         return True, cleaned
 
-                            logger.warning(f"❌ API返回200但未提取到URL: {full_content[:100]}")
-
-                        elif response.status == 401:
-                            return False, "❌ API Key 无效或过期"  # 鉴权失败不重试
-                        else:
-                            logger.error(f"❌ API 请求失败 ({response.status}): {response_text[:200]}")
-
             except asyncio.TimeoutError:
                 logger.error(f"❌ 请求超时 (尝试 {attempt + 1})")
             except Exception as e:
                 logger.error(f"❌ 请求异常: {str(e)}")
 
-            # 如果不是最后一次尝试，等待一秒后重试
-            if attempt < max_retries:
+            if attempt < 3:
                 await asyncio.sleep(1)
 
-        # 循环结束还没返回 True，说明彻底失败
-        return False, f"❌ 多次重试均失败 (已重试{max_retries}次)。\n建议：更换简单的图片或检查网络。"
+        return False, "❌ 多次重试均失败。"
 
     # ---------------- 图生图命令 ----------------
 
