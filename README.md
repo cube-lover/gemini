@@ -14,5 +14,6 @@
 
 最新集合地址：https://help.router-for.me/cn/configuration/basic
 youtube教程地址：https://youtu.be/ckBT7FGezt0?si=pqYzuOXlXHmqjavi
+最新flow部署地址:https://github.com/TheSmallHanCat/flow2api
 
 使用方法,下载部署了使用对应openai格式地址和自定义的密钥，剩下的自己悟,不懂进群交流
