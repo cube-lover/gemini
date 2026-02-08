@@ -16,7 +16,7 @@
         "description": "选择生成模型",
         "type": "string",
         "default": "imagen-4.0-generate-preview-landscape",
-        "hint": "不同模型支持不同的功能和分辨率",
+        "hint": "不同模型支持不同的功能和分辨率；也可填自定义模型ID（优先使用 custom_model）",
         "options": [
           "gemini-2.5-flash-image-landscape",
       "gemini-2.5-flash-image-portrait", 
@@ -25,6 +25,12 @@
       "imagen-4.0-generate-preview-landscape",
       "imagen-4.0-generate-preview-portrait"
         ]
+    },
+    "custom_model": {
+        "description": "自定义模型ID（可选）",
+        "type": "string",
+        "default": "",
+        "hint": "填完整模型ID（例如你的私有/转发模型名）。填写后会加入模型列表，并在未显式选择 model 时作为默认。"
     },
     "prompt_list": {
         "description": "自定义提示词列表",

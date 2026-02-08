@@ -32,10 +32,17 @@ class GeminiDraw(Star):
             "imagen-4.0-generate-preview-portrait",  # Imagen 4.0 竖屏
         ]
 
+        # 允许用户自定义模型 ID（不必限定在 options 内）
+        self.custom_model = str(config.get("custom_model", "")).strip()
+        if self.custom_model:
+            self.available_models.append(self.custom_model)
+
         # 设置默认模型（可配置）
-        default_model = config.get("model", "imagen-4.0-generate-preview-landscape")
-        if default_model in self.available_models:
+        default_model = str(config.get("model", "imagen-4.0-generate-preview-landscape")).strip()
+        if default_model and default_model in self.available_models:
             self.current_model = default_model
+        elif self.custom_model:
+            self.current_model = self.custom_model
         else:
             self.current_model = self.available_models[0]  # 回退到第一个
 
